@@ -1,0 +1,19 @@
+# Ignore model checkpoints, ONNX files, and heavy data artifacts
+models/
+*.onnx
+*.onnx.data
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Ignore Python caches & environment
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+
+# System files
+.DS_Store
+Thumbs.db
