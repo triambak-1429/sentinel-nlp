@@ -1,6 +1,5 @@
 # Ignore raw PyTorch weights & heavy model checkpoints
 models/roberta-pii-checkpoints/
-models/best_pii_model/
 *.safetensors
 *.bin
 *.pt
@@ -9,7 +8,7 @@ models/best_pii_model/
 
 # Do NOT ignore the lightweight ONNX deployment model
 !models/pii_detector.onnx
-
+!models/best_pii_model/tokenizer.json
 # Ignore Python caches & virtual environment
 venv/
 __pycache__/

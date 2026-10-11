@@ -1,43 +1,48 @@
 import time
 import numpy as np
 import onnxruntime as ort
-from transformers import AutoTokenizer
+from tokenizers import Tokenizer
 from src.config import MODEL_DIR, ONNX_MODEL_PATH, ID2LABEL
 from app.schemas import DetectedEntity, AnalyzeResponse
 
 class SentinelInferenceEngine:
     def __init__(self):
-        pytorch_model_path = MODEL_DIR / "best_pii_model"
-        self.tokenizer = AutoTokenizer.from_pretrained(pytorch_model_path)
-        self.session = ort.InferenceSession(ONNX_MODEL_PATH, providers=["CPUExecutionProvider"])
+        tokenizer_json_path = MODEL_DIR / "best_pii_model" / "tokenizer.json"
+        
+        # Pure Rust/C++ tokenizer backend (~5MB RAM footprint)
+        self.tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
+        self.tokenizer.enable_truncation(max_length=128)
+        self.tokenizer.enable_padding(length=128)
+        
+        # ONNX Runtime Session
+        self.session = ort.InferenceSession(str(ONNX_MODEL_PATH), providers=["CPUExecutionProvider"])
 
     def predict(self, prompt: str) -> AnalyzeResponse:
         start_time = time.perf_counter()
         
-        inputs = self.tokenizer(
-            prompt, 
-            return_tensors="np", 
-            truncation=True, 
-            max_length=128
-        )
+        # Encode prompt
+        encoded = self.tokenizer.encode(prompt)
+        
+        input_ids = np.array([encoded.ids], dtype=np.int64)
+        attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
         
         ort_inputs = {
-            "input_ids": inputs["input_ids"].astype(np.int64),
-            "attention_mask": inputs["attention_mask"].astype(np.int64)
+            "input_ids": input_ids,
+            "attention_mask": attention_mask
         }
         
+        # Run ONNX inference
         logits = self.session.run(None, ort_inputs)[0]
         predictions = np.argmax(logits, axis=-1)[0]
         
-        input_ids = inputs["input_ids"][0]
-        tokens = self.tokenizer.convert_ids_to_tokens(input_ids)
+        tokens = encoded.tokens
         
         detected_entities = []
         has_pii = False
         
         for token, pred_id in zip(tokens, predictions):
             tag = ID2LABEL.get(pred_id, "O")
-            if tag != "O" and token not in ["<s>", "</s>", "<pad>"]:
+            if tag != "O" and token not in ["<s>", "</s>", "<pad>", "<unk>"]:
                 has_pii = True
                 clean_token = token.replace("Ġ", "")
                 detected_entities.append(DetectedEntity(token=clean_token, entity_type=tag))
