@@ -1,13 +1,16 @@
-# Ignore model checkpoints, ONNX files, and heavy data artifacts
-models/
-*.onnx
-*.onnx.data
+# Ignore raw PyTorch weights & heavy model checkpoints
+models/roberta-pii-checkpoints/
+models/best_pii_model/
 *.safetensors
 *.bin
 *.pt
 *.pth
+*.onnx.data
 
-# Ignore Python caches & environment
+# Do NOT ignore the lightweight ONNX deployment model
+!models/pii_detector.onnx
+
+# Ignore Python caches & virtual environment
 venv/
 __pycache__/
 *.pyc
