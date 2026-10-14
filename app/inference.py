@@ -30,7 +30,6 @@ class SentinelInferenceEngine:
         self.tokenizer.enable_padding(length=128)
 
         self.session = ort.InferenceSession(str(ONNX_MODEL_PATH), providers=["CPUExecutionProvider"])
-
     def predict(self, prompt: str) -> AnalyzeResponse:
         start_time = time.perf_counter()
         
@@ -45,39 +44,54 @@ class SentinelInferenceEngine:
         offsets = encoded.offsets
         
         detected_entities = []
-        current_entity_tokens = []
         current_entity_type = None
-        has_pii = False
+        current_start = None
+        current_end = None
 
         for token, pred_id, (start, end) in zip(tokens, predictions, offsets):
+            # Skip special tokens and zero-length offsets
             if start == end or token in ["<s>", "</s>", "<pad>", "<unk>"]:
+                if current_entity_type is not None:
+                    full_value = prompt[current_start:current_end].strip()
+                    if full_value:
+                        detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
+                    current_entity_type = None
                 continue
                 
             tag = ID2LABEL.get(pred_id, "O")
             clean_tag = tag.split("-")[-1] if tag != "O" else "O"
 
             if clean_tag != "O":
-                has_pii = True
                 if current_entity_type == clean_tag and not tag.startswith("B-"):
-                    current_entity_tokens.append(prompt[start:end])
+                    # Extend character offset range for the same entity
+                    current_end = end
                 else:
-                    if current_entity_tokens and current_entity_type:
-                        full_value = "".join(current_entity_tokens).strip()
-                        detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
-                    current_entity_tokens = [prompt[start:end]]
+                    # Save existing entity if switching types
+                    if current_entity_type is not None:
+                        full_value = prompt[current_start:current_end].strip()
+                        if full_value:
+                            detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
+                    
+                    # Start tracking new entity
                     current_entity_type = clean_tag
+                    current_start = start
+                    current_end = end
             else:
-                if current_entity_tokens and current_entity_type:
-                    full_value = "".join(current_entity_tokens).strip()
-                    detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
-                    current_entity_tokens = []
+                # Close out current entity on encountering 'O' tag
+                if current_entity_type is not None:
+                    full_value = prompt[current_start:current_end].strip()
+                    if full_value:
+                        detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
                     current_entity_type = None
 
-        if current_entity_tokens and current_entity_type:
-            full_value = "".join(current_entity_tokens).strip()
-            detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
+        # Flush any trailing entity
+        if current_entity_type is not None:
+            full_value = prompt[current_start:current_end].strip()
+            if full_value:
+                detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
 
         latency = (time.perf_counter() - start_time) * 1000
+        has_pii = len(detected_entities) > 0
         risk_score = round(min(1.0, len(detected_entities) * 0.35 + (0.5 if has_pii else 0.0)), 2)
 
         return AnalyzeResponse(
