@@ -1,13 +1,7 @@
-torch>=2.0.0
-transformers>=4.35.0
-datasets>=2.14.0
-evaluate>=0.4.0
-seqeval>=1.2.2
-onnxruntime>=1.16.0
-onnx>=1.14.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
 pydantic>=2.4.0
-faker>=19.12.0
-pytest>=7.4.0
-httpx>=0.25.0
+onnxruntime>=1.16.0
+tokenizers>=0.14.0
+python-multipart>=0.0.6
+requests>=2.31.0
