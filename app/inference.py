@@ -31,6 +31,7 @@ class SentinelInferenceEngine:
 
         self.session = ort.InferenceSession(str(ONNX_MODEL_PATH), providers=["CPUExecutionProvider"])
     def predict(self, prompt: str) -> AnalyzeResponse:
+        import time
         start_time = time.perf_counter()
         
         encoded = self.tokenizer.encode(prompt)
@@ -49,42 +50,37 @@ class SentinelInferenceEngine:
         current_end = None
 
         for token, pred_id, (start, end) in zip(tokens, predictions, offsets):
-            # Skip special tokens and zero-length offsets
+            # Skip special tokens or zero-length offsets
             if start == end or token in ["<s>", "</s>", "<pad>", "<unk>"]:
-                if current_entity_type is not None:
-                    full_value = prompt[current_start:current_end].strip()
-                    if full_value:
-                        detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
-                    current_entity_type = None
                 continue
                 
             tag = ID2LABEL.get(pred_id, "O")
+            # Strip B- and I- prefixes to get the raw entity type
             clean_tag = tag.split("-")[-1] if tag != "O" else "O"
 
             if clean_tag != "O":
-                if current_entity_type == clean_tag and not tag.startswith("B-"):
-                    # Extend character offset range for the same entity
-                    current_end = end
+                # AGGRESSIVE MERGE: If it's the same entity type as the previous token, combine them
+                if current_entity_type == clean_tag:
+                    current_end = max(current_end, end)
                 else:
-                    # Save existing entity if switching types
+                    # Different entity type -> save the old one and start a new one
                     if current_entity_type is not None:
                         full_value = prompt[current_start:current_end].strip()
                         if full_value:
                             detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
                     
-                    # Start tracking new entity
                     current_entity_type = clean_tag
                     current_start = start
                     current_end = end
             else:
-                # Close out current entity on encountering 'O' tag
+                # Hit an "O" tag -> close out the current entity
                 if current_entity_type is not None:
                     full_value = prompt[current_start:current_end].strip()
                     if full_value:
                         detected_entities.append(DetectedEntity(token=full_value, entity_type=current_entity_type))
                     current_entity_type = None
 
-        # Flush any trailing entity
+        # Flush any trailing entity after the loop ends
         if current_entity_type is not None:
             full_value = prompt[current_start:current_end].strip()
             if full_value:
